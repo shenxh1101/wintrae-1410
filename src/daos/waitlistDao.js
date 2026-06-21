@@ -1,16 +1,19 @@
 const db = require('../db');
 const employeeDao = require('./employeeDao');
 const serviceDao = require('./serviceDao');
+const bookingDao = require('./bookingDao');
 
 const enrich = (w) => {
   if (!w) return null;
   const emp = w.employee_id ? employeeDao.findById(w.employee_id) : null;
   const svc = serviceDao.findById(w.service_id);
+  const confirmedBooking = w.confirmed_booking_id ? bookingDao.findById(w.confirmed_booking_id) : null;
   return {
     ...w,
     employee_name: emp ? emp.name : null,
     service_name: svc ? svc.name : null,
-    duration_minutes: svc ? svc.duration_minutes : null
+    duration_minutes: svc ? svc.duration_minutes : null,
+    confirmed_booking: confirmedBooking
   };
 };
 
@@ -51,7 +54,10 @@ const create = (data) => {
     hair_note: data.hair_note || null,
     remark: data.remark || null,
     status: data.status || 'waiting',
-    notified_at: null
+    notified_at: null,
+    confirmed_booking_id: null,
+    confirmed_start_time: null,
+    confirmed_employee_id: null
   });
   return findById(record.id);
 };
@@ -65,6 +71,24 @@ const updateStatus = (id, status) => {
   return findById(id);
 };
 
+const update = (id, data) => {
+  const fields = {};
+  if (data.customer_name !== undefined) fields.customer_name = data.customer_name;
+  if (data.customer_phone !== undefined) fields.customer_phone = data.customer_phone;
+  if (data.employee_id !== undefined) fields.employee_id = data.employee_id;
+  if (data.service_id !== undefined) fields.service_id = data.service_id;
+  if (data.preferred_date !== undefined) fields.preferred_date = data.preferred_date;
+  if (data.preferred_times !== undefined) fields.preferred_times = data.preferred_times;
+  if (data.hair_note !== undefined) fields.hair_note = data.hair_note;
+  if (data.remark !== undefined) fields.remark = data.remark;
+  if (data.status !== undefined) fields.status = data.status;
+  if (data.confirmed_booking_id !== undefined) fields.confirmed_booking_id = data.confirmed_booking_id;
+  if (data.confirmed_start_time !== undefined) fields.confirmed_start_time = data.confirmed_start_time;
+  if (data.confirmed_employee_id !== undefined) fields.confirmed_employee_id = data.confirmed_employee_id;
+  db.update('waitlist', id, fields);
+  return findById(id);
+};
+
 const remove = (id) => {
   return db.remove('waitlist', id);
 };
@@ -74,5 +98,6 @@ module.exports = {
   findById,
   create,
   updateStatus,
+  update,
   remove
 };

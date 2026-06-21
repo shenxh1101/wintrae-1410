@@ -87,6 +87,7 @@ const generateBookingNo = () => {
 
 const create = (data) => {
   const bookingNo = data.booking_no || generateBookingNo();
+  const now = new Date().toISOString();
   const record = db.insert('bookings', {
     booking_no: bookingNo,
     customer_name: data.customer_name,
@@ -104,26 +105,38 @@ const create = (data) => {
     is_no_show: 0,
     arrived_at: null,
     completed_at: null,
-    source: data.source || 'online'
+    source: data.source || 'online',
+    deposit_amount: data.deposit_amount || 0,
+    deposit_status: data.deposit_status || 'unpaid',
+    deposit_paid_at: null,
+    deposit_refunded_at: null,
+    deposit_used_at: null,
+    deposit_expire_at: data.deposit_expire_at || null,
+    deposit_note: null
   });
   return findById(record.id);
 };
 
 const update = (id, data) => {
-  db.update('bookings', id, {
-    customer_name: data.customer_name,
-    customer_phone: data.customer_phone,
-    employee_id: data.employee_id,
-    assistant_id: data.assistant_id || null,
-    service_id: data.service_id,
-    addon_service_ids: data.addon_service_ids || null,
-    booking_date: data.booking_date,
-    start_time: data.start_time,
-    end_time: data.end_time,
-    hair_note: data.hair_note || null,
-    remark: data.remark || null,
-    status: data.status
-  });
+  const fields = {};
+  if (data.customer_name !== undefined) fields.customer_name = data.customer_name;
+  if (data.customer_phone !== undefined) fields.customer_phone = data.customer_phone;
+  if (data.employee_id !== undefined) fields.employee_id = data.employee_id;
+  if (data.assistant_id !== undefined) fields.assistant_id = data.assistant_id || null;
+  if (data.service_id !== undefined) fields.service_id = data.service_id;
+  if (data.addon_service_ids !== undefined) fields.addon_service_ids = data.addon_service_ids || null;
+  if (data.booking_date !== undefined) fields.booking_date = data.booking_date;
+  if (data.start_time !== undefined) fields.start_time = data.start_time;
+  if (data.end_time !== undefined) fields.end_time = data.end_time;
+  if (data.hair_note !== undefined) fields.hair_note = data.hair_note || null;
+  if (data.remark !== undefined) fields.remark = data.remark || null;
+  if (data.status !== undefined) fields.status = data.status;
+  if (data.deposit_amount !== undefined) fields.deposit_amount = data.deposit_amount;
+  if (data.deposit_status !== undefined) fields.deposit_status = data.deposit_status;
+  if (data.deposit_expire_at !== undefined) fields.deposit_expire_at = data.deposit_expire_at;
+  if (data.deposit_note !== undefined) fields.deposit_note = data.deposit_note;
+  if (data.no_show_reason !== undefined) fields.no_show_reason = data.no_show_reason;
+  db.update('bookings', id, fields);
   return findById(id);
 };
 
@@ -144,6 +157,61 @@ const markNoShow = (id) => {
   return updateStatus(id, 'no_show');
 };
 
+const payDeposit = (id, note = null) => {
+  const updates = {
+    deposit_status: 'paid',
+    deposit_paid_at: new Date().toISOString()
+  };
+  if (note) updates.deposit_note = note;
+  db.update('bookings', id, updates);
+  return findById(id);
+};
+
+const refundDeposit = (id, note = null) => {
+  const updates = {
+    deposit_status: 'refunded',
+    deposit_refunded_at: new Date().toISOString()
+  };
+  if (note) updates.deposit_note = note;
+  db.update('bookings', id, updates);
+  return findById(id);
+};
+
+const useDeposit = (id, note = null) => {
+  const updates = {
+    deposit_status: 'used',
+    deposit_used_at: new Date().toISOString()
+  };
+  if (note) updates.deposit_note = note;
+  db.update('bookings', id, updates);
+  return findById(id);
+};
+
+const getDepositStats = (date = null) => {
+  let bookings = db.findAll('bookings');
+  if (date) {
+    bookings = bookings.filter(b => b.booking_date === date);
+  }
+  const expectedDeposit = bookings
+    .filter(b => b.deposit_amount > 0 && b.status !== 'cancelled')
+    .reduce((sum, b) => sum + b.deposit_amount, 0);
+  const paidDeposit = bookings
+    .filter(b => b.deposit_status === 'paid' || b.deposit_status === 'used')
+    .reduce((sum, b) => sum + b.deposit_amount, 0);
+  const refundedDeposit = bookings
+    .filter(b => b.deposit_status === 'refunded')
+    .reduce((sum, b) => sum + b.deposit_amount, 0);
+  const unpaidCount = bookings.filter(b => b.deposit_amount > 0 && b.deposit_status === 'unpaid' && b.status !== 'cancelled').length;
+  const paidCount = bookings.filter(b => b.deposit_status === 'paid').length;
+  return {
+    expected_deposit: expectedDeposit,
+    paid_deposit: paidDeposit,
+    refunded_deposit: refundedDeposit,
+    unpaid_count: unpaidCount,
+    paid_count: paidCount
+  };
+};
+
 module.exports = {
   findAll,
   findById,
@@ -153,5 +221,9 @@ module.exports = {
   create,
   update,
   updateStatus,
-  markNoShow
+  markNoShow,
+  payDeposit,
+  refundDeposit,
+  useDeposit,
+  getDepositStats
 };

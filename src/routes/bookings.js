@@ -158,13 +158,44 @@ router.post('/', (req, res) => {
     finalStatus = 'pending_review';
   }
 
-  const booking = bookingDao.create({ ...bookingData, status: finalStatus });
+  const depositAmount = depositInfo.amount;
+  const depositRequired = depositInfo.required;
+  let depositStatus = 'unpaid';
+  let depositExpireAt = null;
+
+  if (depositRequired && depositAmount > 0) {
+    if (source === 'frontdesk') {
+      depositStatus = 'paid';
+    } else {
+      depositStatus = 'unpaid';
+      const expire = new Date();
+      expire.setMinutes(expire.getMinutes() + 30);
+      depositExpireAt = expire.toISOString();
+    }
+  } else {
+    depositStatus = 'none';
+  }
+
+  const booking = bookingDao.create({
+    ...bookingData,
+    status: finalStatus,
+    deposit_amount: depositAmount,
+    deposit_status: depositStatus,
+    deposit_expire_at: depositExpireAt
+  });
 
   const addons = addonIds.length ? serviceDao.findByIds(addonIds) : [];
   booking.addon_services = addons;
   booking.total_price = totalPrice;
-  booking.deposit = depositInfo;
   booking.is_risk = riskInfo.is_high_risk;
+
+  const depositDetail = {
+    required: depositRequired,
+    amount: depositAmount,
+    status: depositStatus,
+    expire_at: depositExpireAt,
+    total_price: totalPrice
+  };
 
   let sms = null;
   if (finalStatus === 'confirmed') {
@@ -180,15 +211,32 @@ router.post('/', (req, res) => {
     };
   }
 
+  const customerSummary = {
+    total_bookings: customerProfile.total_bookings,
+    completed_bookings: customerProfile.completed_bookings,
+    no_show_count: customerProfile.no_show_count,
+    total_spent: customerProfile.total_spent,
+    preferred_stylist: customerProfile.preferred_stylist,
+    top_services: customerProfile.top_services,
+    hair_notes: customerProfile.hair_notes,
+    recent_bookings: customerProfile.recent_bookings,
+    recent_consumptions: customerProfile.recent_consumptions,
+    last_arrival_date: customerProfile.last_arrival_date,
+    last_no_show: customerProfile.last_no_show,
+    first_booking_date: customerProfile.first_booking_date,
+    last_booking_date: customerProfile.last_booking_date
+  };
+
   res.json({
     code: 0,
     data: booking,
     sms,
     customer_info: {
       profile: customerProfile,
-      risk: riskInfo
+      risk: riskInfo,
+      summary: customerSummary
     },
-    deposit: depositInfo,
+    deposit: depositDetail,
     message: finalStatus === 'pending_review'
       ? '预约已提交，需人工确认'
       : (finalStatus === 'confirmed' ? '预约创建成功' : '预约已提交，待确认')
@@ -381,8 +429,64 @@ router.post('/:id/no-show', (req, res) => {
   if (!existing) {
     return res.status(404).json({ code: 1, message: '预约不存在' });
   }
+  const { reason } = req.body;
   const updated = bookingDao.markNoShow(id);
+  if (reason) {
+    bookingDao.update(id, { no_show_reason: reason });
+    updated.no_show_reason = reason;
+  }
   res.json({ code: 0, data: updated, message: '已标记爽约' });
+});
+
+router.post('/:id/deposit/pay', (req, res) => {
+  const id = parseInt(req.params.id);
+  const existing = bookingDao.findById(id);
+  if (!existing) {
+    return res.status(404).json({ code: 1, message: '预约不存在' });
+  }
+  if (existing.deposit_amount <= 0) {
+    return res.status(400).json({ code: 1, message: '该预约无需支付订金' });
+  }
+  if (existing.deposit_status === 'paid') {
+    return res.status(400).json({ code: 1, message: '订金已支付，请勿重复操作' });
+  }
+  if (existing.deposit_status === 'refunded') {
+    return res.status(400).json({ code: 1, message: '订金已退款，无法再次支付' });
+  }
+  if (existing.deposit_status === 'used') {
+    return res.status(400).json({ code: 1, message: '订金已抵扣，无法再次支付' });
+  }
+  const { note } = req.body;
+  const updated = bookingDao.payDeposit(id, note);
+  res.json({ code: 0, data: updated, message: '订金已标记为已收' });
+});
+
+router.post('/:id/deposit/refund', (req, res) => {
+  const id = parseInt(req.params.id);
+  const existing = bookingDao.findById(id);
+  if (!existing) {
+    return res.status(404).json({ code: 1, message: '预约不存在' });
+  }
+  if (existing.deposit_status !== 'paid') {
+    return res.status(400).json({ code: 1, message: `当前订金状态(${existing.deposit_status})无法退款` });
+  }
+  const { note } = req.body;
+  const updated = bookingDao.refundDeposit(id, note);
+  res.json({ code: 0, data: updated, message: '订金已退款' });
+});
+
+router.post('/:id/deposit/use', (req, res) => {
+  const id = parseInt(req.params.id);
+  const existing = bookingDao.findById(id);
+  if (!existing) {
+    return res.status(404).json({ code: 1, message: '预约不存在' });
+  }
+  if (existing.deposit_status !== 'paid') {
+    return res.status(400).json({ code: 1, message: `当前订金状态(${existing.deposit_status})无法抵扣` });
+  }
+  const { note } = req.body;
+  const updated = bookingDao.useDeposit(id, note);
+  res.json({ code: 0, data: updated, message: '订金已转为到店抵扣' });
 });
 
 module.exports = router;

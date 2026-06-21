@@ -44,16 +44,16 @@ const create = (data) => {
 };
 
 const update = (id, data) => {
-  return db.update('services', id, {
-    name: data.name,
-    duration_minutes: data.duration_minutes,
-    price: data.price,
-    deposit: data.deposit !== undefined ? data.deposit : undefined,
-    require_deposit: data.require_deposit !== undefined ? (data.require_deposit ? 1 : 0) : undefined,
-    category: data.category || null,
-    description: data.description || null,
-    is_active: data.is_active !== undefined ? data.is_active : 1
-  });
+  const fields = {};
+  if (data.name !== undefined) fields.name = data.name;
+  if (data.duration_minutes !== undefined) fields.duration_minutes = data.duration_minutes;
+  if (data.price !== undefined) fields.price = data.price;
+  if (data.deposit !== undefined) fields.deposit = data.deposit;
+  if (data.require_deposit !== undefined) fields.require_deposit = data.require_deposit ? 1 : 0;
+  if (data.category !== undefined) fields.category = data.category;
+  if (data.description !== undefined) fields.description = data.description;
+  if (data.is_active !== undefined) fields.is_active = data.is_active;
+  return db.update('services', id, fields);
 };
 
 const remove = (id) => {

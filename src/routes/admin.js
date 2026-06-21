@@ -133,6 +133,19 @@ router.get('/dashboard/:date', (req, res) => {
     ? Math.round((occupiedMinutes / totalWorkingMinutes) * 10000) / 100
     : 0;
 
+  const expectedDeposit = allBookings
+    .filter(b => b.deposit_amount > 0 && b.status !== 'cancelled')
+    .reduce((sum, b) => sum + b.deposit_amount, 0);
+  const paidDeposit = allBookings
+    .filter(b => b.deposit_status === 'paid' || b.deposit_status === 'used')
+    .reduce((sum, b) => sum + b.deposit_amount, 0);
+  const refundedDeposit = allBookings
+    .filter(b => b.deposit_status === 'refunded')
+    .reduce((sum, b) => sum + b.deposit_amount, 0);
+  const unpaidDepositCount = allBookings.filter(b =>
+    b.deposit_amount > 0 && b.deposit_status === 'unpaid' && b.status !== 'cancelled'
+  ).length;
+
   res.json({
     code: 0,
     data: {
@@ -150,7 +163,11 @@ router.get('/dashboard/:date', (req, res) => {
         actual_revenue: actualRevenue,
         occupancy_rate: occupancyRate,
         working_stylists: stations.filter(s => !s.is_day_off).length,
-        no_show_threshold: noShowThreshold
+        no_show_threshold: noShowThreshold,
+        expected_deposit: expectedDeposit,
+        paid_deposit: paidDeposit,
+        refunded_deposit: refundedDeposit,
+        unpaid_deposit_count: unpaidDepositCount
       },
       stations,
       unconfirmed_bookings: unconfirmedBookings,

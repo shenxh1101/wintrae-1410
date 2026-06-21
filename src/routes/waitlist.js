@@ -3,9 +3,11 @@ const router = express.Router();
 const waitlistDao = require('../daos/waitlistDao');
 const serviceDao = require('../daos/serviceDao');
 const employeeDao = require('../daos/employeeDao');
-const { generateWaitlistNotifySms } = require('../utils/smsGenerator');
+const bookingDao = require('../daos/bookingDao');
+const { generateWaitlistNotifySms, generateConfirmSms } = require('../utils/smsGenerator');
 const { getAvailableSlotsForEmployee } = require('../utils/slotCalculator');
 const { getDateStr } = require('../utils/timeUtils');
+const { calculateEndTime, calculateTotalPrice, fullValidateBooking } = require('../utils/bookingValidator');
 
 const findAvailableSlots = (item) => {
   const service = serviceDao.findById(item.service_id);
@@ -166,9 +168,32 @@ router.post('/:id/confirm-booking', (req, res) => {
   if (!item) {
     return res.status(404).json({ code: 1, message: '候补记录不存在' });
   }
+
+  if (item.status === 'booked') {
+    if (item.confirmed_booking_id) {
+      const booking = bookingDao.findById(item.confirmed_booking_id);
+      if (booking) {
+        const addonIds = booking.addon_service_ids ? booking.addon_service_ids.split(',').map(Number) : [];
+        const addons = addonIds.length ? serviceDao.findByIds(addonIds) : [];
+        booking.addon_services = addons;
+        booking.total_price = booking.service_price + addons.reduce((s, a) => s + a.price, 0);
+        const sms = generateConfirmSms(booking);
+        return res.json({
+          code: 0,
+          data: booking,
+          sms,
+          is_duplicate: true,
+          message: '候补已转为预约，请勿重复确认'
+        });
+      }
+    }
+    return res.status(400).json({ code: 1, message: '该候补已转为预约，但关联预约记录异常' });
+  }
+
   if (item.status !== 'waiting' && item.status !== 'notified') {
     return res.status(400).json({ code: 1, message: `当前状态(${item.status})无法转为预约` });
   }
+
   if (!start_time) {
     return res.status(400).json({ code: 1, message: '必须指定确认的开始时间' });
   }
@@ -182,9 +207,6 @@ router.post('/:id/confirm-booking', (req, res) => {
   if (!service) {
     return res.status(400).json({ code: 1, message: '服务项目不存在' });
   }
-
-  const { calculateEndTime, calculateTotalPrice, fullValidateBooking } = require('../utils/bookingValidator');
-  const bookingDao = require('../daos/bookingDao');
 
   const end_time = calculateEndTime(start_time, item.service_id);
 
@@ -221,13 +243,13 @@ router.post('/:id/confirm-booking', (req, res) => {
     confirmed_employee_id: finalEmployeeId
   });
 
-  const { generateConfirmSms } = require('../utils/smsGenerator');
   const sms = generateConfirmSms(booking);
 
   res.json({
     code: 0,
     data: booking,
     sms,
+    is_duplicate: false,
     message: '候补已成功转为预约'
   });
 });
