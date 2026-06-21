@@ -169,7 +169,8 @@ router.get('/dashboard/:date', (req, res) => {
         paid_deposit: paidDeposit,
         refunded_deposit: refundedDeposit,
         unpaid_deposit_count: unpaidDepositCount,
-        revenue_by_method: transactionDao.getRevenueByMethod(targetDate, targetDate)
+        revenue_by_method: transactionDao.getRevenueByMethod(targetDate, targetDate),
+        finance: transactionDao.getFinanceBreakdown(targetDate, targetDate)
       },
       stations,
       unconfirmed_bookings: unconfirmedBookings,

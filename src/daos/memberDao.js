@@ -76,6 +76,7 @@ const recharge = (phone, amount, operator = null) => {
     total_amount: amount,
     actual_amount: amount,
     payment_method: 'cash',
+    txn_type: 'recharge',
     remark: `储值充值 ¥${amount}`,
     status: 'completed'
   });

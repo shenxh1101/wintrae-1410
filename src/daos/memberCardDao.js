@@ -134,6 +134,7 @@ const purchase = (phone, name, serviceId, totalCount, paidAmount, expireDate = n
       total_amount: paidAmount,
       actual_amount: paidAmount,
       payment_method: 'cash',
+      txn_type: 'card_purchase',
       remark: `购买次卡${card.service_name || ''}×${totalCount}次`,
       status: 'completed'
     });
