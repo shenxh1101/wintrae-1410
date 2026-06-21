@@ -22,9 +22,11 @@ const initDefaultConfigs = () => {
     ['business_end', '21:00', '营业结束时间'],
     ['time_slot_interval', '15', '时段间隔(分钟)'],
     ['store_name', '潮流理发店', '门店名称'],
+    ['no_show_threshold', '2', '爽约次数阈值，达到后线上预约需人工确认'],
     ['sms_template_confirm', '【{store_name}】{customer_name}您好，您预约的{date} {time} {service}已确认，发型师：{stylist}。如有变更请提前2小时致电。', '预约确认短信模板'],
     ['sms_template_remind', '【{store_name}】{customer_name}温馨提醒：您预约的{date} {time} {service}将于1小时后开始，请准时到店。发型师：{stylist}。', '预约提醒短信模板'],
-    ['sms_template_cancel', '【{store_name}】{customer_name}您好，您的{date} {time}预约已取消。期待下次为您服务！', '预约取消短信模板']
+    ['sms_template_cancel', '【{store_name}】{customer_name}您好，您的{date} {time}预约已取消。期待下次为您服务！', '预约取消短信模板'],
+    ['sms_template_risk', '【{store_name}】{customer_name}您好，您的预约已提交，因历史爽约记录需人工确认，我们将尽快与您联系。', '风险预约待确认短信模板']
   ];
   for (const [key, value, desc] of defaultConfigs) {
     db.upsert('store_config', { config_key: key }, {

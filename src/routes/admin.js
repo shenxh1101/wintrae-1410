@@ -5,6 +5,7 @@ const scheduleDao = require('../daos/scheduleDao');
 const employeeDao = require('../daos/employeeDao');
 const serviceDao = require('../daos/serviceDao');
 const configDao = require('../daos/configDao');
+const customerDao = require('../daos/customerDao');
 const { getDateStr, timeToMinutes, addMinutesToTime } = require('../utils/timeUtils');
 
 router.get('/dashboard/:date', (req, res) => {
@@ -14,6 +15,21 @@ router.get('/dashboard/:date', (req, res) => {
   const allBookings = bookingDao.findAll({ booking_date: targetDate });
   const activeEmployees = employeeDao.findAll({ status: 'active' });
   const stylists = activeEmployees.filter(e => e.role === 'stylist');
+  const noShowThreshold = parseInt(configDao.getConfig('no_show_threshold') || '2', 10);
+
+  const riskCache = {};
+  const markBookingRisk = (booking) => {
+    const phone = booking.customer_phone;
+    if (riskCache[phone] === undefined) {
+      const profile = customerDao.getCustomerProfile(phone);
+      riskCache[phone] = profile.no_show_count >= noShowThreshold;
+    }
+    booking.is_risk = riskCache[phone];
+    booking.no_show_count = riskCache[phone] ? customerDao.getCustomerProfile(phone).no_show_count : 0;
+    return booking;
+  };
+
+  allBookings.forEach(markBookingRisk);
 
   const schedules = scheduleDao.findByDateRange(targetDate, targetDate);
   const scheduleMap = {};
@@ -31,8 +47,10 @@ router.get('/dashboard/:date', (req, res) => {
     const arrivedCount = bookings.filter(b => b.status === 'arrived').length;
     const completedCount = bookings.filter(b => b.status === 'completed').length;
     const pendingCount = bookings.filter(b => ['pending', 'confirmed'].includes(b.status)).length;
+    const pendingReviewCount = bookings.filter(b => b.status === 'pending_review').length;
     const cancelledCount = bookings.filter(b => b.status === 'cancelled').length;
     const noShowCount = bookings.filter(b => b.status === 'no_show').length;
+    const riskCount = bookings.filter(b => b.is_risk).length;
 
     const revenue = bookings
       .filter(b => ['arrived', 'completed'].includes(b.status))
@@ -56,16 +74,20 @@ router.get('/dashboard/:date', (req, res) => {
       stats: {
         total: bookings.length,
         pending: pendingCount,
+        pending_review: pendingReviewCount,
         arrived: arrivedCount,
         completed: completedCount,
         cancelled: cancelledCount,
         no_show: noShowCount,
+        risk: riskCount,
         revenue
       }
     });
   }
 
-  const unconfirmedBookings = allBookings.filter(b => b.status === 'pending');
+  const unconfirmedBookings = allBookings.filter(b => b.status === 'pending' || b.status === 'pending_review');
+  const pendingReviewBookings = allBookings.filter(b => b.status === 'pending_review');
+  const riskBookings = allBookings.filter(b => b.is_risk);
 
   const totalExpectedRevenue = allBookings
     .filter(b => b.status !== 'cancelled' && b.status !== 'no_show')
@@ -118,6 +140,8 @@ router.get('/dashboard/:date', (req, res) => {
       summary: {
         total_bookings: allBookings.length,
         unconfirmed_count: unconfirmedBookings.length,
+        pending_review_count: pendingReviewBookings.length,
+        risk_booking_count: riskBookings.length,
         no_show_count: allBookings.filter(b => b.status === 'no_show').length,
         cancelled_count: allBookings.filter(b => b.status === 'cancelled').length,
         completed_count: allBookings.filter(b => b.status === 'completed').length,
@@ -125,10 +149,13 @@ router.get('/dashboard/:date', (req, res) => {
         expected_revenue: totalExpectedRevenue,
         actual_revenue: actualRevenue,
         occupancy_rate: occupancyRate,
-        working_stylists: stations.filter(s => !s.is_day_off).length
+        working_stylists: stations.filter(s => !s.is_day_off).length,
+        no_show_threshold: noShowThreshold
       },
       stations,
-      unconfirmed_bookings: unconfirmedBookings
+      unconfirmed_bookings: unconfirmedBookings,
+      pending_review_bookings: pendingReviewBookings,
+      risk_bookings: riskBookings
     }
   });
 });

@@ -29,7 +29,7 @@ router.get('/batch/query', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, duration_minutes, price, category, description, is_active } = req.body;
+  const { name, duration_minutes, price, category, description, is_active, deposit, require_deposit } = req.body;
   if (!name || !duration_minutes || price === undefined) {
     return res.status(400).json({ code: 1, message: '名称、时长、价格必填' });
   }
@@ -37,6 +37,8 @@ router.post('/', (req, res) => {
     name,
     duration_minutes: parseInt(duration_minutes),
     price: parseFloat(price),
+    deposit: deposit !== undefined ? parseFloat(deposit) : undefined,
+    require_deposit,
     category,
     description,
     is_active
@@ -49,11 +51,13 @@ router.put('/:id', (req, res) => {
   if (!serviceDao.findById(id)) {
     return res.status(404).json({ code: 1, message: '服务项目不存在' });
   }
-  const { name, duration_minutes, price, category, description, is_active } = req.body;
+  const { name, duration_minutes, price, category, description, is_active, deposit, require_deposit } = req.body;
   const service = serviceDao.update(id, {
     name,
-    duration_minutes: parseInt(duration_minutes),
-    price: parseFloat(price),
+    duration_minutes: duration_minutes !== undefined ? parseInt(duration_minutes) : undefined,
+    price: price !== undefined ? parseFloat(price) : undefined,
+    deposit: deposit !== undefined ? parseFloat(deposit) : undefined,
+    require_deposit,
     category,
     description,
     is_active

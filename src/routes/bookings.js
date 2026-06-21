@@ -3,9 +3,11 @@ const router = express.Router();
 const bookingDao = require('../daos/bookingDao');
 const serviceDao = require('../daos/serviceDao');
 const employeeDao = require('../daos/employeeDao');
-const { fullValidateBooking, calculateEndTime, calculateTotalPrice } = require('../utils/bookingValidator');
+const customerDao = require('../daos/customerDao');
+const { fullValidateBooking, calculateEndTime, calculateTotalPrice, getCustomerRiskInfo, validateAddonServices, validateAssistant } = require('../utils/bookingValidator');
 const { generateConfirmSms, generateCancelSms } = require('../utils/smsGenerator');
 const { getDateStr } = require('../utils/timeUtils');
+const configDao = require('../daos/configDao');
 
 router.get('/', (req, res) => {
   const { booking_date, start_date, end_date, employee_id, customer_phone, status, is_no_show } = req.query;
@@ -70,21 +72,63 @@ router.post('/', (req, res) => {
   if (!mainService) {
     return res.status(400).json({ code: 1, message: '主服务项目不存在' });
   }
-
-  if (!employeeDao.findById(parseInt(employee_id))) {
-    return res.status(400).json({ code: 1, message: '指定发型师不存在' });
+  if (!mainService.is_active) {
+    return res.status(400).json({ code: 1, message: `主服务项目"${mainService.name}"已停用` });
   }
 
-  if (assistant_id && !employeeDao.findById(parseInt(assistant_id))) {
-    return res.status(400).json({ code: 1, message: '指定助理不存在' });
+  const stylist = employeeDao.findById(parseInt(employee_id));
+  if (!stylist) {
+    return res.status(400).json({ code: 1, message: '指定发型师不存在' });
+  }
+  if (stylist.role !== 'stylist') {
+    return res.status(400).json({ code: 1, message: `员工"${stylist.name}"是${stylist.role}，不能作为发型师预约` });
+  }
+  if (stylist.status !== 'active') {
+    return res.status(400).json({ code: 1, message: `发型师"${stylist.name}"当前状态${stylist.status}，不可预约` });
   }
 
   const addonIds = addon_service_ids
     ? (Array.isArray(addon_service_ids) ? addon_service_ids : String(addon_service_ids).split(',').map(Number))
     : [];
 
-  const addonIdsStr = addonIds.length ? addonIds.join(',') : null;
+  if (addonIds.length > 0) {
+    const addonCheck = validateAddonServices(addonIds);
+    if (!addonCheck.valid) {
+      return res.status(400).json({ code: 1, message: addonCheck.errors.join('; ') });
+    }
+  }
 
+  if (assistant_id) {
+    const asstCheck = validateAssistant(parseInt(assistant_id));
+    if (!asstCheck.valid) {
+      return res.status(400).json({ code: 1, message: asstCheck.message });
+    }
+  }
+
+  const customerProfile = customerDao.getCustomerProfile(customer_phone);
+  const riskInfo = getCustomerRiskInfo(customer_phone, source || 'online');
+
+  let depositInfo = {
+    required: false,
+    amount: 0,
+    total_price: 0
+  };
+
+  const totalPrice = calculateTotalPrice(parseInt(service_id), addonIds);
+
+  if (mainService.require_deposit) {
+    depositInfo.required = true;
+    depositInfo.amount = mainService.deposit || Math.round(mainService.price * 0.3);
+  }
+
+  if (riskInfo.is_high_risk && source !== 'frontdesk') {
+    depositInfo.required = true;
+    depositInfo.amount = Math.max(depositInfo.amount, Math.round(totalPrice * 0.5));
+  }
+
+  depositInfo.total_price = totalPrice;
+
+  const addonIdsStr = addonIds.length ? addonIds.join(',') : null;
   const end_time = calculateEndTime(start_time, parseInt(service_id), addonIds);
 
   const bookingData = {
@@ -107,19 +151,47 @@ router.post('/', (req, res) => {
     return res.status(400).json({ code: 1, message: validation.errors.join('; ') });
   }
 
-  const booking = bookingDao.create(bookingData);
+  let finalStatus = 'pending';
+  if (source === 'frontdesk') {
+    finalStatus = 'confirmed';
+  } else if (riskInfo.require_manual_confirm) {
+    finalStatus = 'pending_review';
+  }
+
+  const booking = bookingDao.create({ ...bookingData, status: finalStatus });
 
   const addons = addonIds.length ? serviceDao.findByIds(addonIds) : [];
   booking.addon_services = addons;
-  booking.total_price = calculateTotalPrice(parseInt(service_id), addonIds);
+  booking.total_price = totalPrice;
+  booking.deposit = depositInfo;
+  booking.is_risk = riskInfo.is_high_risk;
 
-  const confirmSms = generateConfirmSms(booking);
+  let sms = null;
+  if (finalStatus === 'confirmed') {
+    sms = generateConfirmSms(booking);
+  } else if (finalStatus === 'pending_review') {
+    const template = configDao.getConfig('sms_template_risk');
+    const storeName = configDao.getConfig('store_name');
+    sms = {
+      phone: customer_phone,
+      content: template
+        .replace(/\{store_name\}/g, storeName)
+        .replace(/\{customer_name\}/g, customer_name)
+    };
+  }
 
   res.json({
     code: 0,
     data: booking,
-    sms: confirmSms,
-    message: '预约创建成功'
+    sms,
+    customer_info: {
+      profile: customerProfile,
+      risk: riskInfo
+    },
+    deposit: depositInfo,
+    message: finalStatus === 'pending_review'
+      ? '预约已提交，需人工确认'
+      : (finalStatus === 'confirmed' ? '预约创建成功' : '预约已提交，待确认')
   });
 });
 
@@ -277,7 +349,7 @@ router.post('/:id/confirm', (req, res) => {
   if (!existing) {
     return res.status(404).json({ code: 1, message: '预约不存在' });
   }
-  if (existing.status !== 'pending') {
+  if (existing.status !== 'pending' && existing.status !== 'pending_review') {
     return res.status(400).json({ code: 1, message: `当前状态(${existing.status})无法确认` });
   }
   const updated = bookingDao.updateStatus(id, 'confirmed');

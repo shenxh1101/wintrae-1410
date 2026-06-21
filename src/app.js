@@ -11,6 +11,7 @@ const bookingsRouter = require('./routes/bookings');
 const waitlistRouter = require('./routes/waitlist');
 const adminRouter = require('./routes/admin');
 const systemRouter = require('./routes/system');
+const customersRouter = require('./routes/customers');
 const db = require('./db');
 const configDao = require('./daos/configDao');
 const { getDateStr } = require('./utils/timeUtils');
@@ -69,6 +70,7 @@ app.use('/api/bookings', bookingsRouter);
 app.use('/api/waitlist', waitlistRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/system', systemRouter);
+app.use('/api/customers', customersRouter);
 
 app.use((err, req, res, next) => {
   console.error('Error:', err);

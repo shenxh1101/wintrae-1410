@@ -3,6 +3,8 @@ const configDao = require('../daos/configDao');
 const scheduleDao = require('../daos/scheduleDao');
 const bookingDao = require('../daos/bookingDao');
 const serviceDao = require('../daos/serviceDao');
+const employeeDao = require('../daos/employeeDao');
+const customerDao = require('../daos/customerDao');
 
 const validateBusinessHours = (startTime, endTime) => {
   const businessStart = configDao.getConfig('business_start');
@@ -75,6 +77,69 @@ const validateDuplicateCustomer = (customerPhone, date, excludeBookingId = null)
   return { valid: true };
 };
 
+const validateAddonServices = (addonIds) => {
+  if (!addonIds || addonIds.length === 0) {
+    return { valid: true };
+  }
+  const errors = [];
+  const addons = serviceDao.findByIds(addonIds);
+  const foundIds = addons.map(a => a.id);
+
+  for (const id of addonIds) {
+    if (!foundIds.includes(id)) {
+      errors.push(`加做项目ID=${id} 不存在`);
+      continue;
+    }
+    const svc = addons.find(a => a.id === id);
+    if (!svc.is_active) {
+      errors.push(`加做项目"${svc.name}"已停用`);
+    }
+  }
+
+  return { valid: errors.length === 0, errors, valid_addons: addons.filter(a => a.is_active) };
+};
+
+const validateAssistant = (assistantId) => {
+  if (!assistantId) {
+    return { valid: true };
+  }
+  const emp = employeeDao.findById(assistantId);
+  if (!emp) {
+    return { valid: false, message: `指定助理ID=${assistantId} 不存在` };
+  }
+  if (emp.role !== 'assistant') {
+    return { valid: false, message: `员工"${emp.name}"角色是${emp.role}，不能作为助理` };
+  }
+  if (emp.status !== 'active') {
+    return { valid: false, message: `助理"${emp.name}"当前状态${emp.status}，不在岗` };
+  }
+  return { valid: true, assistant: emp };
+};
+
+const getCustomerRiskInfo = (customerPhone, source = 'online') => {
+  const profile = customerDao.getCustomerProfile(customerPhone);
+  const threshold = parseInt(configDao.getConfig('no_show_threshold') || '2', 10);
+
+  const isHighRisk = source === 'online' && profile.no_show_count >= threshold;
+  const shouldRequireManualConfirm = isHighRisk;
+
+  let depositRequired = false;
+  let depositAmount = 0;
+
+  return {
+    no_show_count: profile.no_show_count,
+    no_show_threshold: threshold,
+    is_high_risk: isHighRisk,
+    require_manual_confirm: shouldRequireManualConfirm,
+    total_bookings: profile.total_bookings,
+    total_spent: profile.total_spent,
+    preferred_stylist: profile.preferred_stylist,
+    hair_notes: profile.hair_notes,
+    deposit_required: depositRequired,
+    deposit_amount: depositAmount
+  };
+};
+
 const calculateEndTime = (startTime, serviceId, addonIds = []) => {
   const mainService = serviceDao.findById(serviceId);
   if (!mainService) {
@@ -112,7 +177,7 @@ const calculateTotalPrice = (serviceId, addonIds = []) => {
   return total;
 };
 
-const fullValidateBooking = (bookingData, excludeBookingId = null) => {
+const fullValidateBooking = (bookingData, excludeBookingId = null, checkAddons = true, checkAssistant = true) => {
   const errors = [];
 
   const hoursCheck = validateBusinessHours(bookingData.start_time, bookingData.end_time);
@@ -142,6 +207,19 @@ const fullValidateBooking = (bookingData, excludeBookingId = null) => {
   );
   if (!dupCheck.valid) errors.push(dupCheck.message);
 
+  if (checkAddons && bookingData.addon_service_ids) {
+    const addonIds = Array.isArray(bookingData.addon_service_ids)
+      ? bookingData.addon_service_ids
+      : String(bookingData.addon_service_ids).split(',').map(Number);
+    const addonCheck = validateAddonServices(addonIds);
+    if (!addonCheck.valid) errors.push(...addonCheck.errors);
+  }
+
+  if (checkAssistant && bookingData.assistant_id) {
+    const asstCheck = validateAssistant(bookingData.assistant_id);
+    if (!asstCheck.valid) errors.push(asstCheck.message);
+  }
+
   return { valid: errors.length === 0, errors };
 };
 
@@ -150,6 +228,9 @@ module.exports = {
   validateSchedule,
   validateBookingConflict,
   validateDuplicateCustomer,
+  validateAddonServices,
+  validateAssistant,
+  getCustomerRiskInfo,
   calculateEndTime,
   calculateTotalPrice,
   fullValidateBooking

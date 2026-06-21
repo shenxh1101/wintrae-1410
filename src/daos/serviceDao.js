@@ -35,6 +35,8 @@ const create = (data) => {
     name: data.name,
     duration_minutes: data.duration_minutes,
     price: data.price,
+    deposit: data.deposit !== undefined ? data.deposit : 0,
+    require_deposit: data.require_deposit ? 1 : 0,
     category: data.category || null,
     description: data.description || null,
     is_active: data.is_active !== undefined ? data.is_active : 1
@@ -46,6 +48,8 @@ const update = (id, data) => {
     name: data.name,
     duration_minutes: data.duration_minutes,
     price: data.price,
+    deposit: data.deposit !== undefined ? data.deposit : undefined,
+    require_deposit: data.require_deposit !== undefined ? (data.require_deposit ? 1 : 0) : undefined,
     category: data.category || null,
     description: data.description || null,
     is_active: data.is_active !== undefined ? data.is_active : 1

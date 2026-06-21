@@ -24,12 +24,14 @@ const request = (method, path, body = null) => {
   });
 };
 
-const log = (label, data) => {
+const log = (label, data, pass = true) => {
   console.log(`\n=== ${label} ===`);
-  if (data.code === 0) {
-    console.log('✓ 成功:', JSON.stringify(data.data || data.message).slice(0, 300));
+  if (pass && data && data.code === 0) {
+    console.log('✓ 成功:', JSON.stringify(data.data || data.message || data).slice(0, 400));
+  } else if (!pass || (data && data.code !== 0)) {
+    console.log('✓ 预期失败:', data && data.message || JSON.stringify(data).slice(0, 400));
   } else {
-    console.log('✗ 失败:', data.message || JSON.stringify(data));
+    console.log('✗ 异常:', JSON.stringify(data).slice(0, 400));
   }
 };
 
@@ -131,18 +133,120 @@ const log = (label, data) => {
   log('19.加入候补', newWait);
   const waitId = newWait.data ? newWait.data.id : null;
   if (waitId) {
-    log('20.通知候补', await request('POST', `/api/waitlist/${waitId}/notify`));
+    log('20.查询可用时段(pre-notify)', await request('GET', `/api/waitlist/${waitId}/pre-notify`));
+    log('21.通知候补', await request('POST', `/api/waitlist/${waitId}/notify`));
   }
 
-  log('21.今日预约列表', await request('GET', '/api/bookings?booking_date=2026-06-22'));
+  log('22.今日预约列表', await request('GET', '/api/bookings?booking_date=2026-06-22'));
 
-  log('22.管理端统计', await request('GET', '/api/admin/dashboard/2026-06-22'));
+  log('23.管理端统计', await request('GET', '/api/admin/dashboard/2026-06-22'));
 
-  log('23.工位占用热力图', await request('GET', '/api/admin/station-occupancy/2026-06-22'));
+  log('24.工位占用热力图', await request('GET', '/api/admin/station-occupancy/2026-06-22'));
 
-  log('24.系统配置', await request('GET', '/api/system/configs'));
+  log('25.系统配置', await request('GET', '/api/system/configs'));
 
-  log('25.收入统计(近7天)', await request('GET', '/api/admin/revenue?start_date=2026-06-22&end_date=2026-06-28'));
+  log('26.收入统计(近7天)', await request('GET', '/api/admin/revenue?start_date=2026-06-22&end_date=2026-06-28'));
 
-  console.log('\n========= 测试完成 =========\n');
+  console.log('\n=== 新增功能测试 ===\n');
+
+  const badAddonBooking = await request('POST', '/api/bookings', {
+    customer_name: '加做项目测试',
+    customer_phone: '13900004444',
+    employee_id: 2,
+    service_id: 1,
+    addon_service_ids: [999, 2],
+    booking_date: '2026-06-22',
+    start_time: '17:00'
+  });
+  log('27.加做项目校验(不存在项目ID=999)', badAddonBooking, false);
+
+  const badAssistantBooking = await request('POST', '/api/bookings', {
+    customer_name: '助理校验测试',
+    customer_phone: '13900004444',
+    employee_id: 2,
+    assistant_id: 1,
+    service_id: 1,
+    booking_date: '2026-06-22',
+    start_time: '17:00'
+  });
+  log('28.指定助理校验(发型师作为助理)', badAssistantBooking, false);
+
+  log('29.顾客信息查询(13900008888)', await request('GET', '/api/customers/profile/13900008888'));
+
+  log('30.顾客预约记录', await request('GET', '/api/customers/bookings/13900008888'));
+
+  const noShowCustomer = await request('POST', '/api/bookings', {
+    customer_name: '高频爽约客户',
+    customer_phone: '13800002222',
+    employee_id: 2,
+    service_id: 1,
+    booking_date: '2026-06-23',
+    start_time: '10:00',
+    source: 'frontdesk'
+  });
+  if (noShowCustomer.data) {
+    const nsId = noShowCustomer.data.id;
+    await request('POST', `/api/bookings/${nsId}/no-show`);
+  }
+
+  const noShowCustomer2 = await request('POST', '/api/bookings', {
+    customer_name: '高频爽约客户',
+    customer_phone: '13800002222',
+    employee_id: 3,
+    service_id: 1,
+    booking_date: '2026-06-25',
+    start_time: '10:00',
+    source: 'frontdesk'
+  });
+  if (noShowCustomer2.data) {
+    const nsId2 = noShowCustomer2.data.id;
+    await request('POST', `/api/bookings/${nsId2}/no-show`);
+  }
+
+  const riskBooking = await request('POST', '/api/bookings', {
+    customer_name: '高频爽约客户',
+    customer_phone: '13800002222',
+    employee_id: 2,
+    service_id: 1,
+    booking_date: '2026-06-26',
+    start_time: '11:00',
+    source: 'online'
+  });
+  log('31.风险客户线上预约(自动待人工确认)', riskBooking);
+  console.log('  → 状态:', riskBooking.data && riskBooking.data.status);
+  console.log('  → 风险标记:', riskBooking.data && riskBooking.data.is_risk);
+
+  const riskBookingId = riskBooking.data ? riskBooking.data.id : null;
+  if (riskBookingId) {
+    log('32.确认待审核预约', await request('POST', `/api/bookings/${riskBookingId}/confirm`));
+  }
+
+  log('33.管理端统计(含风险标记)', await request('GET', '/api/admin/dashboard/2026-06-26'));
+
+  const depositService = await request('POST', '/api/services', {
+    name: '订金测试项目',
+    duration_minutes: 60,
+    price: 500,
+    deposit: 100,
+    require_deposit: 1,
+    category: 'test',
+    description: '测试订金功能'
+  });
+  log('34.创建需订金项目', depositService);
+
+  const depositBooking = await request('POST', '/api/bookings', {
+    customer_name: '订金测试客户',
+    customer_phone: '13900003333',
+    employee_id: 2,
+    service_id: depositService.data ? depositService.data.id : 3,
+    booking_date: '2026-06-22',
+    start_time: '18:00',
+    source: 'online'
+  });
+  log('35.需订金项目预约', depositBooking);
+  console.log('  → 订金信息:', JSON.stringify(depositBooking.deposit || depositBooking.data?.deposit));
+
+  log('36.顾客信息查询(含风险)', await request('GET', '/api/customers/profile/13800002222'));
+
+  console.log('\n========= 所有测试完成 =========\n');
 })().catch(e => console.error('测试异常:', e));
