@@ -7,13 +7,50 @@ const enrich = (w) => {
   if (!w) return null;
   const emp = w.employee_id ? employeeDao.findById(w.employee_id) : null;
   const svc = serviceDao.findById(w.service_id);
-  const confirmedBooking = w.confirmed_booking_id ? bookingDao.findById(w.confirmed_booking_id) : null;
+
+  let confirmedBooking = w.confirmed_booking_id ? bookingDao.findById(w.confirmed_booking_id) : null;
+  if (!confirmedBooking && w.status === 'booked') {
+    const candidates = bookingDao.findAll({
+      customer_phone: w.customer_phone,
+      booking_date: w.preferred_date
+    });
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => b.id - a.id);
+      confirmedBooking = candidates[0];
+      if (confirmedBooking && !w.confirmed_booking_id) {
+        db.update('waitlist', w.id, {
+          confirmed_booking_id: confirmedBooking.id,
+          confirmed_start_time: confirmedBooking.start_time,
+          confirmed_employee_id: confirmedBooking.employee_id
+        });
+      }
+    }
+  }
+
+  const confirmedEmp = confirmedBooking && confirmedBooking.employee_id
+    ? employeeDao.findById(confirmedBooking.employee_id)
+    : null;
+
   return {
     ...w,
     employee_name: emp ? emp.name : null,
     service_name: svc ? svc.name : null,
     duration_minutes: svc ? svc.duration_minutes : null,
-    confirmed_booking: confirmedBooking
+    confirmed_booking: confirmedBooking ? {
+      id: confirmedBooking.id,
+      booking_no: confirmedBooking.booking_no,
+      booking_date: confirmedBooking.booking_date,
+      start_time: confirmedBooking.start_time,
+      end_time: confirmedBooking.end_time,
+      employee_id: confirmedBooking.employee_id,
+      employee_name: confirmedEmp ? confirmedEmp.name : null,
+      service_id: confirmedBooking.service_id,
+      status: confirmedBooking.status,
+      total_price: confirmedBooking.service_price || 0
+    } : null,
+    confirmed_booking_no: confirmedBooking ? confirmedBooking.booking_no : null,
+    confirmed_booking_time: confirmedBooking ? confirmedBooking.start_time : null,
+    confirmed_booking_stylist: confirmedEmp ? confirmedEmp.name : null
   };
 };
 

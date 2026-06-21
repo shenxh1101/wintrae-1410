@@ -4,6 +4,8 @@ const bookingDao = require('../daos/bookingDao');
 const serviceDao = require('../daos/serviceDao');
 const employeeDao = require('../daos/employeeDao');
 const customerDao = require('../daos/customerDao');
+const memberDao = require('../daos/memberDao');
+const memberCardDao = require('../daos/memberCardDao');
 const { fullValidateBooking, calculateEndTime, calculateTotalPrice, getCustomerRiskInfo, validateAddonServices, validateAssistant } = require('../utils/bookingValidator');
 const { generateConfirmSms, generateCancelSms } = require('../utils/smsGenerator');
 const { getDateStr } = require('../utils/timeUtils');
@@ -227,6 +229,12 @@ router.post('/', (req, res) => {
     last_booking_date: customerProfile.last_booking_date
   };
 
+  const member = memberDao.findByPhone(customer_phone);
+  const memberCards = member ? memberCardDao.findAll({ phone: customer_phone, status: 'active' }) : [];
+  const availableCardsForService = member && service_id
+    ? memberCardDao.findAvailableByPhoneAndService(customer_phone, service_id)
+    : [];
+
   res.json({
     code: 0,
     data: booking,
@@ -235,6 +243,20 @@ router.post('/', (req, res) => {
       profile: customerProfile,
       risk: riskInfo,
       summary: customerSummary
+    },
+    member_info: member ? {
+      exists: true,
+      stored_value: member.stored_value || 0,
+      level: member.level || '普通',
+      total_recharge: member.total_recharge || 0,
+      total_consume: member.total_consume || 0,
+      active_cards: memberCards,
+      available_for_this_service: availableCardsForService
+    } : {
+      exists: false,
+      stored_value: 0,
+      active_cards: [],
+      available_for_this_service: []
     },
     deposit: depositDetail,
     message: finalStatus === 'pending_review'

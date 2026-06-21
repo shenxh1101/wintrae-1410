@@ -6,6 +6,7 @@ const employeeDao = require('../daos/employeeDao');
 const serviceDao = require('../daos/serviceDao');
 const configDao = require('../daos/configDao');
 const customerDao = require('../daos/customerDao');
+const transactionDao = require('../daos/transactionDao');
 const { getDateStr, timeToMinutes, addMinutesToTime } = require('../utils/timeUtils');
 
 router.get('/dashboard/:date', (req, res) => {
@@ -167,7 +168,8 @@ router.get('/dashboard/:date', (req, res) => {
         expected_deposit: expectedDeposit,
         paid_deposit: paidDeposit,
         refunded_deposit: refundedDeposit,
-        unpaid_deposit_count: unpaidDepositCount
+        unpaid_deposit_count: unpaidDepositCount,
+        revenue_by_method: transactionDao.getRevenueByMethod(targetDate, targetDate)
       },
       stations,
       unconfirmed_bookings: unconfirmedBookings,

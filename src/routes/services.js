@@ -23,9 +23,33 @@ router.get('/:id', (req, res) => {
 
 router.get('/batch/query', (req, res) => {
   const { ids } = req.query;
+  if (!ids) {
+    return res.status(400).json({ code: 1, message: '请传入ids参数，逗号分隔' });
+  }
   const idArray = (ids || '').split(',').map(Number).filter(n => !isNaN(n));
-  const services = serviceDao.findByIds(idArray);
-  res.json({ code: 0, data: services });
+  const uniqueIds = [...new Set(idArray)];
+  const services = serviceDao.findByIds(uniqueIds);
+  const foundIds = services.map(s => s.id);
+
+  const notFound = [];
+  const inactive = [];
+  for (const id of uniqueIds) {
+    const svc = services.find(s => s.id === id);
+    if (!svc) {
+      notFound.push({ id, message: `服务项目ID=${id} 不存在` });
+    } else if (!svc.is_active) {
+      inactive.push({ id, name: svc.name, message: `服务项目"${svc.name}"已停用` });
+    }
+  }
+
+  res.json({
+    code: 0,
+    data: services,
+    not_found: notFound,
+    inactive: inactive,
+    requested_ids: uniqueIds,
+    found_count: services.length
+  });
 });
 
 router.post('/', (req, res) => {

@@ -8,19 +8,25 @@ let db = null;
 let saveTimer = null;
 
 const DEFAULT_DB = {
-  meta: { version: 1, initialized: false },
+  meta: { version: 2, initialized: false },
   store_config: [],
   employees: [],
   services: [],
   schedules: [],
   bookings: [],
   waitlist: [],
+  transactions: [],
+  members: [],
+  member_cards: [],
   counters: {
     employees: 0,
     services: 0,
     schedules: 0,
     bookings: 0,
-    waitlist: 0
+    waitlist: 0,
+    transactions: 0,
+    members: 0,
+    member_cards: 0
   }
 };
 
